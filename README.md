@@ -55,18 +55,27 @@ Usage :
 
         $ pydvpl --mode compress --path /path/to/decompress/compress.yaml --threads 10
 
-Running :
+Requirements :
 
-- python 3.10+ required!
+>python 3.10+
+
+>pip 23.0+
+
+Auto installation :
+```
+pip install pydvpl
+```
+
+Manual installation :
 
 ```
 $ git clone https://github.com/rifsxd/pydvpl.git
 ```
 
 ```
-$ cd pydvpl/src/pydvpl
+$ cd pydvpl
 ```
 
 ```
-$ py ./pydvpl.py -h
+$ pip install ./
 ```
