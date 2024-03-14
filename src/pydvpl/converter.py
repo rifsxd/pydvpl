@@ -20,7 +20,7 @@ class Color:
 
 class Meta:
     NAME = 'PyDVPL'
-    VERSION = '0.2.0'
+    VERSION = '0.3.0'
     DATE = '14/03/2024'
     DEV = 'RifsxD'
     REPO = 'https://github.com/rifsxd/pydvpl'
@@ -120,7 +120,12 @@ def count_total_files(directory):
     return total_files
 
 
-def ConvertDVPLFiles(directory_or_file, config, total_files, processed_files):
+def ConvertDVPLFiles(directory_or_file, config, total_files=None, processed_files=None):
+    if total_files is None:
+        total_files = count_total_files(directory_or_file)
+    if processed_files is None:
+        processed_files = multiprocessing.Value('i', 0)
+
     success_count = 0
     failure_count = 0
     ignored_count = 0
@@ -132,7 +137,8 @@ def ConvertDVPLFiles(directory_or_file, config, total_files, processed_files):
             success_count += succ
             failure_count += fail
             ignored_count += ignored
-            processed_files.value += 1
+            with processed_files.get_lock():
+                processed_files.value += 1
             print_progress_bar(processed_files, total_files)
     else:
         is_decompression = config.mode == "decompress" and directory_or_file.endswith(".dvpl")
@@ -178,8 +184,12 @@ def ConvertDVPLFiles(directory_or_file, config, total_files, processed_files):
     return success_count, failure_count, ignored_count
 
 
+def VerifyDVPLFiles(directory_or_file, config, total_files=None, processed_files=None):
+    if total_files is None:
+        total_files = count_total_files(directory_or_file)
+    if processed_files is None:
+        processed_files = multiprocessing.Value('i', 0)
 
-def VerifyDVPLFiles(directory_or_file, config, total_files, processed_files):
     success_count = 0
     failure_count = 0
     ignored_count = 0
@@ -187,12 +197,11 @@ def VerifyDVPLFiles(directory_or_file, config, total_files, processed_files):
     if os.path.isdir(directory_or_file):
         dir_list = os.listdir(directory_or_file)
         for dir_item in dir_list:
-            succ, fail, ignored = VerifyDVPLFiles(os.path.join(directory_or_file, dir_item), config, total_files,
-                                                  processed_files)
+            succ, fail, ignored = VerifyDVPLFiles(os.path.join(directory_or_file, dir_item), config, total_files, processed_files)
             success_count += succ
             failure_count += fail
             ignored_count += ignored
-            if processed_files.value < total_files:  # Ensure processed files count does not exceed total files
+            with processed_files.get_lock():
                 processed_files.value += 1
             print_progress_bar(processed_files, total_files)
     else:
@@ -217,6 +226,16 @@ def VerifyDVPLFiles(directory_or_file, config, total_files, processed_files):
                 if zlib.crc32(target_block) != footer_data.crc32:
                     raise ValueError(Color.RED + "DVPLCRC32Mismatch" + Color.RESET)
 
+                if footer_data.type == DVPL_TYPE_NONE:
+                    if footer_data.original_size != footer_data.compressed_size or footer_data.type != DVPL_TYPE_NONE:
+                        raise ValueError(Color.RED + "DVPLTypeSizeMismatch" + Color.RESET)
+                elif footer_data.type == DVPL_TYPE_LZ4:
+                    deDVPL_block = lz4.block.decompress(target_block, uncompressed_size=footer_data.original_size)
+                    if len(deDVPL_block) != footer_data.original_size:
+                        raise ValueError(Color.RED + "DVPLDecodeSizeMismatch" + Color.RESET)
+                else:
+                    raise ValueError(Color.RED + "UNKNOWN DVPL FORMAT" + Color.RESET)
+
                 if config.verbose:
                     with output_lock:
                         print(
@@ -237,10 +256,22 @@ def VerifyDVPLFiles(directory_or_file, config, total_files, processed_files):
     return success_count, failure_count, ignored_count
 
 
+def process_func(directory_or_file, config, total_files, processed_files):
+    if config.mode in ["compress", "decompress"]:
+        return ConvertDVPLFiles(directory_or_file, config)
+    elif config.mode == "verify":
+        return VerifyDVPLFiles(directory_or_file, config)
+    elif config.mode == "help":
+        PrintHelpMessage()
+        return (0, 0, 0)  # Return (0, 0, 0) when in help mode
+    else:
+        raise ValueError("Incorrect mode selected. Use '--help' for information.")
+
+
 def ParseCommandLineArgs():
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--mode",
-                        help="mode can be 'compress' / 'decompress' / 'help' (for an extended help guide).")
+                        help="mode can be 'compress' / 'decompress' / 'verify' / 'help' (for an extended help guide).")
     parser.add_argument("-k", "--keep-originals", action="store_true",
                         help="keep original files after compression/decompression.")
     parser.add_argument("-v", "--verbose", action="store_true",
@@ -248,6 +279,8 @@ def ParseCommandLineArgs():
     parser.add_argument("-p", "--path", help="directory/files path to process. Default is the current directory.")
     parser.add_argument("-i", "--ignore", default="",
                         help="Comma-separated list of file extensions to ignore during compression.")
+    parser.add_argument("-t", "--threads", type=int, default=1,
+                        help="Number of threads to use for processing. Default is 1.")
     args = parser.parse_args()
 
     if not args.mode:
@@ -260,7 +293,7 @@ def ParseCommandLineArgs():
 
 
 def PrintHelpMessage():
-    print('''pydvpl [--mode] [--keep-originals] [--path]
+    print('''$ pydvpl [--mode] [--keep-originals] [--path] [--threads]
 
     • flags can be one of the following:
 
@@ -269,6 +302,7 @@ def PrintHelpMessage():
         -p, --path: specifies the directory/files path to process. Default is the current directory.
         -i, --ignore: specifies comma-separated file extensions to ignore during compression.
         -v, --verbose: shows verbose information for all processed files.
+        -t, --threads: specifies the number of threads to use for processing. Default is 1.
 
     • mode can be one of the following:
 
@@ -306,6 +340,10 @@ def PrintHelpMessage():
         $ pydvpl --mode verify -path /path/to/verify
 
         $ pydvpl --mode verify -path /path/to/verify/verify.yaml.dvpl
+        
+        $ pydvpl --mode decompress --path /path/to/decompress/compress.yaml.dvpl --threads 10
+
+        $ pydvpl --mode compress --path /path/to/decompress/compress.yaml --threads 10
     ''')
 
 
@@ -334,17 +372,14 @@ def main():
     processed_files = manager.Value('i', 0)  # Define processed_files using a Manager
 
     try:
-        if config.mode in ["compress", "decompress"]:
-            process_func = partial(ConvertDVPLFiles, config=config, total_files=total_files,
-                                   processed_files=processed_files)
-        elif config.mode == "verify":
-            process_func = partial(VerifyDVPLFiles, config=config, total_files=total_files,
-                                   processed_files=processed_files)
-        else:
-            raise ValueError("Incorrect mode selected. Use '--help' for information.")
+        process_func_partial = partial(process_func, config=config, total_files=total_files,
+                                       processed_files=processed_files)
 
-        with multiprocessing.Pool() as pool:
-            results = pool.map(process_func, [config.path])
+        if config.threads > 1:
+            with multiprocessing.Pool(config.threads) as pool:
+                results = pool.map(process_func_partial, [config.path])
+        else:
+            results = [process_func_partial(config.path)]
 
         success_count = sum(result[0] for result in results)
         failure_count = sum(result[1] for result in results)
@@ -356,8 +391,6 @@ def main():
         elif config.mode == "verify":
             print(
                 f"\n\n{Color.GREEN}{config.mode.upper()} FINISHED{Color.RESET}. Successful verifications: {Color.GREEN}{success_count}{Color.RESET}, Failed verifications: {Color.RED}{failure_count}{Color.RESET}, Ignored files: {Color.YELLOW}{ignored_count}{Color.RESET}")
-        elif config.mode == "help":
-            PrintHelpMessage()
     except Exception as e:
         print(f"\n\n{Color.RED}{config.mode.upper()} FAILED{Color.RESET}: {e}\n")
 
