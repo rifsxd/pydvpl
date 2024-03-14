@@ -7,6 +7,17 @@ from .converter import (
     createDVPLFooter
 )
 
-__all__ = ['CompressDVPL', 'DecompressDVPL','ConvertDVPLFiles', 'VerifyDVPLFiles', 'readDVPLFooter', 'createDVPLFooter']
+from .__version__ import (
+    __description__,
+    __title__,
+    __version__,
+    __date__,
+    __repo__,
+    __author__
+)
 
-__version__ = '0.3.0'
+__all__ = ['CompressDVPL', 'DecompressDVPL', 'ConvertDVPLFiles',
+           'VerifyDVPLFiles', 'readDVPLFooter', 'createDVPLFooter',
+           '__description__', '__title__', '__version__',
+           '__author__', '__date__', '__repo__']
+

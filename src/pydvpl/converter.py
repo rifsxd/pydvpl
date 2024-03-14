@@ -8,6 +8,8 @@ import sys
 import multiprocessing
 import queue
 from functools import partial
+from .__version__ import __version__, __description__, __title__, __date__, __repo__, __author__
+
 
 
 class Color:
@@ -19,12 +21,12 @@ class Color:
 
 
 class Meta:
-    NAME = 'PyDVPL'
-    VERSION = '0.3.0'
-    DATE = '14/03/2024'
-    DEV = 'RifsxD'
-    REPO = 'https://github.com/rifsxd/pydvpl'
-    INFO = 'A CLI Tool Coded In Python3 To Convert WoTB ( Dava ) SmartDLC DVPL File Based On LZ4 High Compression.'
+    NAME = __title__
+    VERSION = __version__
+    DATE = __date__
+    DEV = __author__
+    REPO = __repo__
+    INFO = __description__
 
 
 output_lock = threading.Lock()
@@ -113,12 +115,14 @@ def print_progress_bar(processed_files, total_files):
         sys.stdout.flush()
 
 
+from pathlib import Path
+
 def count_total_files(directory):
     total_files = 0
-    for root, dirs, files in os.walk(directory):
-        total_files += len(files)
+    for path in Path(directory).rglob('*'):
+        if path.is_file():
+            total_files += 1
     return total_files
-
 
 def ConvertDVPLFiles(directory_or_file, config, total_files=None, processed_files=None):
     if total_files is None:
@@ -130,16 +134,16 @@ def ConvertDVPLFiles(directory_or_file, config, total_files=None, processed_file
     failure_count = 0
     ignored_count = 0
 
-    if os.path.isdir(directory_or_file):
-        dir_list = os.listdir(directory_or_file)
-        for dir_item in dir_list:
-            succ, fail, ignored = ConvertDVPLFiles(os.path.join(directory_or_file, dir_item), config, total_files, processed_files)
-            success_count += succ
-            failure_count += fail
-            ignored_count += ignored
-            with processed_files.get_lock():
-                processed_files.value += 1
-            print_progress_bar(processed_files, total_files)
+    if Path(directory_or_file).is_dir():
+        for file_path in Path(directory_or_file).rglob('*'):
+            if file_path.is_file():
+                succ, fail, ignored = ConvertDVPLFiles(str(file_path), config, total_files, processed_files)
+                success_count += succ
+                failure_count += fail
+                ignored_count += ignored
+                with processed_files.get_lock():
+                    processed_files.value += 1
+                print_progress_bar(processed_files, total_files)
     else:
         is_decompression = config.mode == "decompress" and directory_or_file.endswith(".dvpl")
         is_compression = config.mode == "compress" and not directory_or_file.endswith(".dvpl")
@@ -183,7 +187,6 @@ def ConvertDVPLFiles(directory_or_file, config, total_files=None, processed_file
 
     return success_count, failure_count, ignored_count
 
-
 def VerifyDVPLFiles(directory_or_file, config, total_files=None, processed_files=None):
     if total_files is None:
         total_files = count_total_files(directory_or_file)
@@ -194,16 +197,16 @@ def VerifyDVPLFiles(directory_or_file, config, total_files=None, processed_files
     failure_count = 0
     ignored_count = 0
 
-    if os.path.isdir(directory_or_file):
-        dir_list = os.listdir(directory_or_file)
-        for dir_item in dir_list:
-            succ, fail, ignored = VerifyDVPLFiles(os.path.join(directory_or_file, dir_item), config, total_files, processed_files)
-            success_count += succ
-            failure_count += fail
-            ignored_count += ignored
-            with processed_files.get_lock():
-                processed_files.value += 1
-            print_progress_bar(processed_files, total_files)
+    if Path(directory_or_file).is_dir():
+        for file_path in Path(directory_or_file).rglob('*'):
+            if file_path.is_file() and file_path.suffix == '.dvpl':
+                succ, fail, ignored = VerifyDVPLFiles(str(file_path), config, total_files, processed_files)
+                success_count += succ
+                failure_count += fail
+                ignored_count += ignored
+                with processed_files.get_lock():
+                    processed_files.value += 1
+                print_progress_bar(processed_files, total_files)
     else:
         is_dvpl_file = directory_or_file.endswith(".dvpl")
 
@@ -271,7 +274,7 @@ def process_func(directory_or_file, config, total_files, processed_files):
 def ParseCommandLineArgs():
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--mode",
-                        help="mode can be 'compress' / 'decompress' / 'verify' / 'help' (for an extended help guide).")
+                        help="mode can be 'c' or 'compress' / 'd' or 'decompress' / 'v' or 'verify' / 'h' or 'help' (for an extended help guide).")
     parser.add_argument("-k", "--keep-originals", action="store_true",
                         help="keep original files after compression/decompression.")
     parser.add_argument("-v", "--verbose", action="store_true",
@@ -289,11 +292,23 @@ def ParseCommandLineArgs():
     if not args.path:
         args.path = os.getcwd()
 
+    # Map short forms to full mode names
+    mode_mapping = {
+        'c': 'compress',
+        'd': 'decompress',
+        'v': 'verify',
+        'h': 'help'
+    }
+
+    # If mode argument is provided and it matches a short form, replace it with the full mode name
+    if args.mode in mode_mapping:
+        args.mode = mode_mapping[args.mode]
+
     return args
 
 
 def PrintHelpMessage():
-    print('''$ pydvpl [--mode] [--keep-originals] [--path] [--threads]
+    print('''$ pydvpl [--mode] [--keep-originals] [--path] [--verbose] [--ignore] [--threads]
 
     • flags can be one of the following:
 
@@ -306,10 +321,10 @@ def PrintHelpMessage():
 
     • mode can be one of the following:
 
-        compress: compresses files into dvpl.
-        decompress: decompresses dvpl files into standard files.
-        verify: verify compressed dvpl files to determine valid compression.
-        help: show this help message.
+        c, compress: compresses files into dvpl.
+        d, decompress: decompresses dvpl files into standard files.
+        v, verify: verify compressed dvpl files to determine valid compression.
+        h, help: show this help message.
 
     • usage can be one of the following examples:
 
@@ -366,6 +381,10 @@ def main():
 
     start_time = time.time()
     config = ParseCommandLineArgs()
+
+    if config.threads <= 0:
+        print(f"\n{Color.YELLOW}No threads specified.{Color.RESET} No processing will be done.\n")
+        return
 
     total_files = count_total_files(config.path)
     manager = multiprocessing.Manager()

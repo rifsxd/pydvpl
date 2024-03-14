@@ -3,7 +3,7 @@
 
 Usage :
 
-    pydvpl [--mode] [--keep-originals] [--path] [--verbose] [--ignore]
+    $ pydvpl [--mode] [--keep-originals] [--path] [--verbose] [--ignore] [--threads]
 
     • flags can be one of the following:
 
@@ -12,13 +12,14 @@ Usage :
         -p, --path: specifies the directory/files path to process. Default is the current directory.
         -i, --ignore: specifies comma-separated file extensions to ignore during compression.
         -v, --verbose: shows verbose information for all processed files.
+        -t, --threads: specifies the number of threads to use for processing. Default is 1.
 
     • mode can be one of the following:
 
-        compress: compresses files into dvpl.
-        decompress: decompresses dvpl files into standard files.
-        verify: verify compressed dvpl files to determine valid compression.
-        help: show this help message.
+        c, compress: compresses files into dvpl.
+        d, decompress: decompresses dvpl files into standard files.
+        v, verify: verify compressed dvpl files to determine valid compression.
+        h, help: show this help message.
 
     • usage can be one of the following examples:
 
@@ -45,10 +46,14 @@ Usage :
         $ pydvpl --mode compress --path /path/to/decompress --ignore exe,dll
 
         $ pydvpl --mode compress --path /path/to/decompress --ignore test.exe,test.txt
-        
+
         $ pydvpl --mode verify -path /path/to/verify
 
         $ pydvpl --mode verify -path /path/to/verify/verify.yaml.dvpl
+        
+        $ pydvpl --mode decompress --path /path/to/decompress/compress.yaml.dvpl --threads 10
+
+        $ pydvpl --mode compress --path /path/to/decompress/compress.yaml --threads 10
 
 Running :
 
