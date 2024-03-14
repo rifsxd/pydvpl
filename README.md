@@ -55,6 +55,10 @@ Usage :
 
         $ pydvpl --mode compress --path /path/to/decompress/compress.yaml --threads 10
 
+        $ pydvpl --mode compress --path /path/to/decompress/compress.yaml --compression hc
+        
+        $ pydvpl --mode compress --path /path/to/decompress/ --compression fast
+
 Requirements :
 
 >python 3.10+
