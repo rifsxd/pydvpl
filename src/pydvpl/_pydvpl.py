@@ -13,18 +13,77 @@ from functools import partial
 PYDVPL_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(PYDVPL_DIR))
 
-from pydvpl.version import __version__, __description__, __title__, __date__, __repo__, __author__
+from pydvpl.version import __version__, __description__, __title__, __repo__, __author__, __license__
 from pydvpl.dvpl import compress_dvpl, decompress_dvpl, read_dvpl_footer, DVPL_FOOTER_SIZE, DVPL_TYPE_NONE, DVPL_TYPE_LZ4
 from pydvpl.color import Color
 
+    
+import pkg_resources
+import requests
 
-class Meta:
+def meta_info():
     NAME = __title__
     VERSION = __version__
-    DATE = __date__
     DEV = __author__
     REPO = __repo__
     INFO = __description__
+    LICENSE = __license__
+
+    print()
+
+    # Loading animation while checking for updates
+    animation = "|/-\\"
+    idx = 0
+    while True:
+        print(f"\rChecking for updates... {animation[idx % len(animation)]}", end='', flush=True)
+        idx += 1
+        if idx == 20:  # Number of animation iterations
+            break
+        time.sleep(0.05)  # Adjust sleep time for faster animation
+
+    try:
+        response = requests.get(f"https://pypi.org/pypi/{NAME}/json", timeout=3)  # Set timeout for request
+        response.raise_for_status()  # Raise exception for non-200 status codes
+        latest_version = response.json()["info"]["version"]
+    except requests.exceptions.RequestException as e:
+        print("\nError occurred while checking for updates:", e)
+        return
+    except Exception as e:
+        print("\nUnexpected error occurred:", e)
+        return
+
+    if latest_version:
+        installed_version = pkg_resources.parse_version(VERSION)
+        latest_pypi_version = pkg_resources.parse_version(latest_version)
+
+        if latest_pypi_version > installed_version:
+            print(f"\n\n{Color.BLUE}• Version:{Color.RESET} {VERSION} (New version {latest_version} is available. Run `pydvpl --upgrade` to install latest version)")
+        elif installed_version > latest_pypi_version:
+            print(f"\n\n{Color.BLUE}• Version:{Color.RESET} {VERSION} (Whoa are you from the future? Cuz you have a newer version {VERSION} than available on PyPI {latest_version})")
+
+        else:
+            print(f"\n\n{Color.BLUE}• Version:{Color.RESET} {VERSION} (You have the latest version.)")
+    else:
+        print(f"\n\n{Color.BLUE}• Version:{Color.RESET} {VERSION} (Failed to retrieve latest version from PyPI)")
+
+    print(f"{Color.BLUE}• Name:{Color.RESET} {NAME}")
+    print(f"{Color.BLUE}• Dev:{Color.RESET} {DEV}")
+    print(f"{Color.BLUE}• Repo:{Color.RESET} {REPO}")
+    print(f"{Color.BLUE}• LICENSE:{Color.RESET} {LICENSE}")
+    print(f"{Color.BLUE}• Info:{Color.RESET} {INFO}\n")
+
+
+def brand_ascii():
+    print('                                                  ')
+    print('██████╗ ██╗   ██╗██████╗ ██╗   ██╗██████╗ ██╗     ')
+    print('██╔══██╗╚██╗ ██╔╝██╔══██╗██║   ██║██╔══██╗██║     ')
+    print('██████╔╝ ╚████╔╝ ██║  ██║██║   ██║██████╔╝██║     ')
+    print('██╔═══╝   ╚██╔╝  ██║  ██║╚██╗ ██╔╝██╔═══╝ ██║     ')
+    print('██║        ██║   ██████╔╝ ╚████╔╝ ██║     ███████╗')
+    print('╚═╝        ╚═╝   ╚═════╝   ╚═══╝  ╚═╝     ╚══════╝')
+    print('                                                  ')
+    print(f'{__description__}')
+    print('                                                  ')
 
 
 output_lock = threading.Lock()
@@ -237,6 +296,19 @@ def process_mode(directory_or_file, config):
         raise ValueError("Incorrect mode selected. Use '--help' for information.")
 
 
+def confirm_upgrade():
+    while True:
+        user_input = input("Are you sure you want to upgrade pydvpl? (y, yes / n, no): ").strip().lower()
+        if user_input in ['yes', 'y']:
+            return True
+        elif user_input in ['no', 'n']:
+            return False
+        else:
+            print("Invalid input. Please enter 'yes' (y) or 'no' (n).")
+            sys.exit(1)  # Exit the script if invalid input is provided
+
+            
+
 def parse_command_line_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--mode",
@@ -252,8 +324,23 @@ def parse_command_line_args():
                         help="Number of threads to use for processing. Default is 1.")
     parser.add_argument("-c", "--compression", choices=['default', 'fast', 'hc'],
                         help="Select compression level: 'default' for default compression, 'fast' for fast compression, 'hc' for high compression. Only available for 'compress' mode.")
+    parser.add_argument("--version", action="store_true",
+                        help="show version information and updates and exit.")
+    parser.add_argument("--upgrade", action="store_true",
+                        help="upgrade pydvpl to the latest version")
 
     args = parser.parse_args()
+
+    if args.version:
+        meta_info()
+        sys.exit()
+
+    if args.upgrade:
+        if confirm_upgrade():
+            os.system('pip install pydvpl --upgrade')
+        else:
+            print("Upgrade cancelled.")
+        sys.exit()
 
     if not args.mode:
         parser.error("No mode selected. Use '--help' for usage information")
@@ -291,6 +378,8 @@ def print_help_message():
         -i, --ignore: specifies comma-separated file extensions to ignore during compression.
         -v, --verbose: shows verbose information for all processed files.
         -t, --threads: specifies the number of threads to use for processing. Default is 1.
+        --version: check version info/update and meta info.
+        --upgrade: update to the latest version.
 
     • mode can be one of the following:
 
@@ -349,15 +438,14 @@ def print_elapsed_time(elapsed_time):
 
 
 def cli():
-    print(f"\n{Color.BLUE}• Name:{Color.RESET} {Meta.NAME}")
-    print(f"{Color.BLUE}• Version:{Color.RESET} {Meta.VERSION}")
-    print(f"{Color.BLUE}• Commit:{Color.RESET} {Meta.DATE}")
-    print(f"{Color.BLUE}• Dev:{Color.RESET} {Meta.DEV}")
-    print(f"{Color.BLUE}• Repo:{Color.RESET} {Meta.REPO}")
-    print(f"{Color.BLUE}• Info:{Color.RESET} {Meta.INFO}\n")
-
     start_time = time.time()
     config = parse_command_line_args()
+
+    if config.version:
+        meta_info()
+        return
+    
+    brand_ascii()
 
     if config.threads <= 0:
         print(f"\n{Color.YELLOW}No threads specified.{Color.RESET} No processing will be done.\n")
