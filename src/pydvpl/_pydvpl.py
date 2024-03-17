@@ -9,9 +9,13 @@ import multiprocessing
 import queue
 from pathlib import Path
 from functools import partial
-from .__version__ import __version__, __description__, __title__, __date__, __repo__, __author__
-from ._dvpl import compress_dvpl, decompress_dvpl, read_dvpl_footer, DVPL_FOOTER_SIZE, DVPL_TYPE_NONE, DVPL_TYPE_LZ4
-from ._color import Color
+
+PYDVPL_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(PYDVPL_DIR))
+
+from pydvpl.version import __version__, __description__, __title__, __date__, __repo__, __author__
+from pydvpl.dvpl import compress_dvpl, decompress_dvpl, read_dvpl_footer, DVPL_FOOTER_SIZE, DVPL_TYPE_NONE, DVPL_TYPE_LZ4
+from pydvpl.color import Color
 
 
 class Meta:
@@ -29,7 +33,7 @@ output_lock = threading.Lock()
 processed_queue = queue.Queue()
 
 
-def print_progress_bar(processed_files, total_files):
+def print_progress_bar_with_time(processed_files, total_files, start_time):
     with output_lock:
         progress = min(processed_files.value / total_files, 1.0)  # Ensure progress doesn't exceed 100%
         bar_length = 50
@@ -38,6 +42,22 @@ def print_progress_bar(processed_files, total_files):
         percentage = progress * 100
         sys.stdout.write('\rProcessing: [{:<50}] {:.2f}%'.format(bar, percentage))
         sys.stdout.flush()
+
+        # Calculate remaining time
+        if progress > 0:
+            elapsed_time = time.time() - start_time
+            remaining_files = total_files - processed_files.value
+            if processed_files.value > 0:
+                avg_time_per_file = elapsed_time / processed_files.value
+                remaining_time = remaining_files * avg_time_per_file
+                if remaining_time < 60:
+                    remaining_time_str = f"{int(remaining_time)} s"
+                elif remaining_time < 3600:
+                    remaining_time_str = f"{int(remaining_time / 60)} min"
+                else:
+                    remaining_time_str = f"{int(remaining_time / 3600)} h"
+                sys.stdout.write(f' | Remaining time: {remaining_time_str}')
+                sys.stdout.flush()
 
 
 def count_total_files(directory):
@@ -48,11 +68,13 @@ def count_total_files(directory):
     return total_files
 
 
-def convert_dvpl(directory_or_file, config, total_files=None, processed_files=None):
+def convert_dvpl(directory_or_file, config, total_files=None, processed_files=None, start_time=None):
     if total_files is None:
         total_files = count_total_files(directory_or_file)
     if processed_files is None:
         processed_files = multiprocessing.Value('i', 0)
+    if start_time is None:
+        start_time = time.time()
 
     success_count = 0
     failure_count = 0
@@ -64,22 +86,22 @@ def convert_dvpl(directory_or_file, config, total_files=None, processed_files=No
     if Path(directory_or_file).is_dir():
         for file_path in Path(directory_or_file).rglob('*'):
             if file_path.is_file():
-                succ, fail, ignored = convert_dvpl(str(file_path), config, total_files, processed_files)
+                succ, fail, ignored = convert_dvpl(str(file_path), config, total_files, processed_files, start_time)  # Convert WindowsPath to string
                 success_count += succ
                 failure_count += fail
                 ignored_count += ignored
                 with processed_files.get_lock():
                     processed_files.value += 1
-                print_progress_bar(processed_files, total_files)
+                print_progress_bar_with_time(processed_files, total_files, start_time)
     else:
-        is_decompression = config.mode == "decompress" and directory_or_file.endswith(".dvpl")
-        is_compression = config.mode == "compress" and not directory_or_file.endswith(".dvpl")
+        is_decompression = config.mode == "decompress" and str(directory_or_file).endswith(".dvpl")  # Convert WindowsPath to string
+        is_compression = config.mode == "compress" and not str(directory_or_file).endswith(".dvpl")  # Convert WindowsPath to string
 
         ignore_extensions = config.ignore.split(",") if config.ignore else []
-        should_ignore = any(directory_or_file.endswith(ext) for ext in ignore_extensions)
+        should_ignore = any(str(directory_or_file).endswith(ext) for ext in ignore_extensions)  # Convert WindowsPath to string
 
         if not should_ignore and (is_decompression or is_compression):
-            file_path = directory_or_file
+            file_path = str(directory_or_file)  # Convert WindowsPath to string
             try:
                 # Check if the file exists before attempting to open it
                 if os.path.exists(file_path):
@@ -126,12 +148,13 @@ def convert_dvpl(directory_or_file, config, total_files=None, processed_files=No
 
     return success_count, failure_count, ignored_count
 
-
-def verify_dvpl(directory_or_file, config, total_files=None, processed_files=None):
+def verify_dvpl(directory_or_file, config, total_files=None, processed_files=None, start_time=None):
     if total_files is None:
         total_files = count_total_files(directory_or_file)
     if processed_files is None:
         processed_files = multiprocessing.Value('i', 0)
+    if start_time is None:
+        start_time = time.time()
 
     success_count = 0
     failure_count = 0
@@ -143,21 +166,21 @@ def verify_dvpl(directory_or_file, config, total_files=None, processed_files=Non
     if Path(directory_or_file).is_dir():
         for file_path in Path(directory_or_file).rglob('*'):
             if file_path.is_file() and file_path.suffix == '.dvpl':
-                succ, fail, ignored = verify_dvpl(str(file_path), config, total_files, processed_files)
+                succ, fail, ignored = verify_dvpl(str(file_path), config, total_files, processed_files, start_time)  # Convert WindowsPath to string
                 success_count += succ
                 failure_count += fail
                 ignored_count += ignored
                 with processed_files.get_lock():
                     processed_files.value += 1
-                print_progress_bar(processed_files, total_files)
+                print_progress_bar_with_time(processed_files, total_files, start_time)
     else:
-        is_dvpl_file = directory_or_file.endswith(".dvpl")
+        is_dvpl_file = str(directory_or_file).endswith(".dvpl")  # Convert WindowsPath to string
 
         ignore_extensions = config.ignore.split(",") if config.ignore else []
-        should_ignore = any(directory_or_file.endswith(ext) for ext in ignore_extensions)
+        should_ignore = any(str(directory_or_file).endswith(ext) for ext in ignore_extensions)  # Convert WindowsPath to string
 
         if not should_ignore and is_dvpl_file:
-            file_path = directory_or_file
+            file_path = str(directory_or_file)  # Convert WindowsPath to string
             try:
                 with open(file_path, "rb") as f:
                     file_data = f.read()
@@ -228,7 +251,8 @@ def parse_command_line_args():
     parser.add_argument("-t", "--threads", type=int, default=1,
                         help="Number of threads to use for processing. Default is 1.")
     parser.add_argument("-c", "--compression", choices=['default', 'fast', 'hc'],
-                        help="Select compression level: 'default' for default compression, 'fast' for fast compression, 'hc' for high compression.")
+                        help="Select compression level: 'default' for default compression, 'fast' for fast compression, 'hc' for high compression. Only available for 'compress' mode.")
+
     args = parser.parse_args()
 
     if not args.mode:
@@ -248,6 +272,10 @@ def parse_command_line_args():
     # If mode argument is provided, and it matches a short form, replace it with the full mode name
     if args.mode in mode_mapping:
         args.mode = mode_mapping[args.mode]
+
+    # Check if compression option is used with incorrect modes
+    if args.mode not in ['compress', 'c'] and args.compression is not None:
+        parser.error("Compression option is only supported for 'compress' mode.")
 
     return args
 
