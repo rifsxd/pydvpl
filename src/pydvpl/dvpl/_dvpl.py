@@ -17,7 +17,7 @@ class DVPLFooter:
         self.type = type_val
 
 
-async def create_dvpl_footer(input_size, compressed_size, crc32_val, type_val):
+def create_dvpl_footer(input_size, compressed_size, crc32_val, type_val):
     result = bytearray(DVPL_FOOTER_SIZE)
     result[:4] = input_size.to_bytes(4, 'little')
     result[4:8] = compressed_size.to_bytes(4, 'little')
@@ -27,7 +27,7 @@ async def create_dvpl_footer(input_size, compressed_size, crc32_val, type_val):
     return result
 
 
-async def read_dvpl_footer(buffer):
+def read_dvpl_footer(buffer):
     if len(buffer) < DVPL_FOOTER_SIZE:
         raise ValueError(Color.RED + "InvalidDVPLFooter: Buffer size is smaller than expected" + Color.RESET)
 
@@ -44,7 +44,7 @@ async def read_dvpl_footer(buffer):
     return DVPLFooter(original_size, compressed_size, crc32_val, type_val)
 
 
-async def compress_dvpl(buffer, compression_type="default"):
+def compress_dvpl(buffer, compression_type="default"):
     if compression_type == "fast":
         mode = "fast"
     elif compression_type == "hc":
@@ -53,12 +53,12 @@ async def compress_dvpl(buffer, compression_type="default"):
         mode = "default"
 
     compressed_block = lz4.block.compress(buffer, store_size=False, mode=mode)
-    footer_buffer = await create_dvpl_footer(len(buffer), len(compressed_block), zlib.crc32(compressed_block), DVPL_TYPE_LZ4)
+    footer_buffer = create_dvpl_footer(len(buffer), len(compressed_block), zlib.crc32(compressed_block), DVPL_TYPE_LZ4)
     return compressed_block + footer_buffer
 
 
-async def decompress_dvpl(buffer):
-    footer_data = await read_dvpl_footer(buffer)
+def decompress_dvpl(buffer):
+    footer_data = read_dvpl_footer(buffer)
     target_block = buffer[:-DVPL_FOOTER_SIZE]
 
     if len(target_block) != footer_data.compressed_size:

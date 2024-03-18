@@ -1,10 +1,8 @@
 import argparse
 import time
 import os
-import threading
 import sys
-import asyncio
-import aiohttp
+import requests
 from pathlib import Path
 from functools import partial
 from packaging import version
@@ -17,7 +15,7 @@ from pydvpl.dvpl import compress_dvpl, decompress_dvpl
 from pydvpl.color import Color
 
 
-async def meta_info():
+def meta_info():
     NAME = __title__
     VERSION = __version__
     DEV = __author__
@@ -35,15 +33,14 @@ async def meta_info():
         idx += 1
         if idx == 20:  # Number of animation iterations
             break
-        await asyncio.sleep(0.05)  # Adjust sleep time for faster animation
+        time.sleep(0.05)  # Adjust sleep time for faster animation
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(f"https://pypi.org/pypi/{NAME}/json", timeout=3) as response:
-                response.raise_for_status()  # Raise exception for non-200 status codes
-                data = await response.json()
-                latest_version = data["info"]["version"]
-    except aiohttp.ClientError as e:
+        response = requests.get(f"https://pypi.org/pypi/{NAME}/json", timeout=3)
+        response.raise_for_status()  # Raise exception for non-200 status codes
+        data = response.json()
+        latest_version = data["info"]["version"]
+    except requests.RequestException as e:
         print("\nError occurred while checking for updates:", e)
         return
     except Exception as e:
@@ -70,7 +67,7 @@ async def meta_info():
     print(f"{Color.BLUE}• Info:{Color.RESET} {INFO}\n")
 
 
-async def brand_ascii():
+def brand_ascii():
     print(f'{Color.BLUE}')
     print('                                                  ')
     print('██████╗ ██╗   ██╗██████╗ ██╗   ██╗██████╗ ██╗     ')
@@ -84,9 +81,8 @@ async def brand_ascii():
     print('                                                  ')
     print(f'{Color.RESET}')
 
-output_lock = threading.Lock()
 
-async def print_remaining_time(processed_files, total_files, start_time):
+def print_remaining_time(processed_files, total_files, start_time):
     elapsed_time = time.time() - start_time
     if processed_files > 0:
         avg_processing_time_per_file = elapsed_time / processed_files
@@ -102,8 +98,8 @@ async def print_remaining_time(processed_files, total_files, start_time):
             print(f" | Remaining time: {Color.RED}{int(remaining_time / 3600)} hour(s){Color.RESET}", end='')
 
 
-async def print_progress_bar_with_time(processed_files, total_files, start_time):
-    with output_lock:
+def print_progress_bar_with_time(processed_files, total_files, start_time):
+
         progress = min(processed_files / total_files, 1.0)  # Ensure progress doesn't exceed 100%
         bar_length = 50
         filled_length = int(bar_length * progress)
@@ -118,10 +114,10 @@ async def print_progress_bar_with_time(processed_files, total_files, start_time)
         percentage = progress * 100
         sys.stdout.write('\rProcessing: [{:<50}] {:.2f}%'.format(bar, percentage))
         sys.stdout.flush()
-        await print_remaining_time(processed_files, total_files, start_time)
+        print_remaining_time(processed_files, total_files, start_time)
 
 
-async def count_total_files(directory):
+def count_total_files(directory):
     total_files = 0
     for path in Path(directory).rglob('*'):
         if path.is_file():
@@ -130,9 +126,9 @@ async def count_total_files(directory):
 
 
 
-async def convert_dvpl(directory_or_file, config, total_files=None, processed_files=None, start_time=None):
+def convert_dvpl(directory_or_file, config, total_files=None, processed_files=None, start_time=None):
     if total_files is None:
-        total_files = await count_total_files(directory_or_file)
+        total_files = count_total_files(directory_or_file)
     if processed_files is None:
         processed_files = 0
     if start_time is None:
@@ -148,12 +144,12 @@ async def convert_dvpl(directory_or_file, config, total_files=None, processed_fi
     if Path(directory_or_file).is_dir():
         for file_path in Path(directory_or_file).rglob('*'):
             if file_path.is_file():
-                succ, fail, ignored = await convert_dvpl(str(file_path), config, total_files, processed_files, start_time)  # Convert WindowsPath to string
+                succ, fail, ignored = convert_dvpl(str(file_path), config, total_files, processed_files, start_time)  # Convert WindowsPath to string
                 success_count += succ
                 failure_count += fail
                 ignored_count += ignored
                 processed_files += 1
-                await print_progress_bar_with_time(processed_files, total_files, start_time)
+                print_progress_bar_with_time(processed_files, total_files, start_time)
     else:
         is_decompression = config.mode == "decompress" and str(directory_or_file).endswith(".dvpl")  # Convert WindowsPath to string
         is_compression = config.mode == "compress" and not str(directory_or_file).endswith(".dvpl")  # Convert WindowsPath to string
@@ -171,14 +167,14 @@ async def convert_dvpl(directory_or_file, config, total_files=None, processed_fi
 
                     if is_compression:
                         if config.compression == "fast":
-                            processed_block = await compress_dvpl(file_data, "fast")
+                            processed_block = compress_dvpl(file_data, "fast")
                         elif config.compression == "hc":
-                            processed_block = await compress_dvpl(file_data, "hc")
+                            processed_block = compress_dvpl(file_data, "hc")
                         else:
-                            processed_block = await compress_dvpl(file_data)
+                            processed_block = compress_dvpl(file_data)
                         new_name = file_path + ".dvpl"
                     else:
-                        processed_block = await decompress_dvpl(file_data)
+                        processed_block = decompress_dvpl(file_data)
                         new_name = os.path.splitext(file_path)[0]
 
                     with open(new_name, "wb") as f:
@@ -189,29 +185,25 @@ async def convert_dvpl(directory_or_file, config, total_files=None, processed_fi
 
                     success_count += 1
                     if config.verbose:
-                        with output_lock:
                             print(f"{Color.GREEN}\nFile{Color.RESET} {file_path} has been successfully {Color.GREEN}{'compressed' if is_compression else 'decompressed'}{Color.RESET} into {Color.GREEN}{new_name}{Color.RESET}")
                 else:
                     if config.verbose:
-                        with output_lock:
                             print(f"{Color.RED}\nError{Color.RESET}: File {file_path} does not exist.")
                     failure_count += 1
             except Exception as e:
                 failure_count += 1
                 if config.verbose:
-                    with output_lock:
                         print(f"{Color.RED}\nError{Color.RESET} processing file {file_path}: {e}")
         else:
             ignored_count += 1
             if config.verbose:
-                with output_lock:
                     print(f"{Color.YELLOW}\nIgnoring{Color.RESET} file {directory_or_file}")
 
     return success_count, failure_count, ignored_count
 
-async def verify_dvpl(directory_or_file, config, total_files=None, processed_files=None, start_time=None):
+def verify_dvpl(directory_or_file, config, total_files=None, processed_files=None, start_time=None):
     if total_files is None:
-        total_files = await count_total_files(directory_or_file)
+        total_files = count_total_files(directory_or_file)
     if processed_files is None:
         processed_files = 0
     if start_time is None:
@@ -227,12 +219,12 @@ async def verify_dvpl(directory_or_file, config, total_files=None, processed_fil
     if Path(directory_or_file).is_dir():
         for file_path in Path(directory_or_file).rglob('*'):
             if file_path.is_file():
-                succ, fail, ignored = await verify_dvpl(str(file_path), config, total_files, processed_files, start_time)  # Convert WindowsPath to string
+                succ, fail, ignored = verify_dvpl(str(file_path), config, total_files, processed_files, start_time)  # Convert WindowsPath to string
                 success_count += succ
                 failure_count += fail
                 ignored_count += ignored
                 processed_files += 1
-                await print_progress_bar_with_time(processed_files, total_files, start_time)
+                print_progress_bar_with_time(processed_files, total_files, start_time)
     else:
         is_dvpl_file = str(directory_or_file).endswith(".dvpl")  # Convert WindowsPath to string
         ignore_extensions = config.ignore.split(",") if config.ignore else []
@@ -249,45 +241,40 @@ async def verify_dvpl(directory_or_file, config, total_files=None, processed_fil
                     try:
                         success_count += 1
                         if config.verbose:
-                            with output_lock:
                                 print(f"{Color.GREEN}\nVerified{Color.RESET} file {file_path} as a valid .dvpl file.")
                     except Exception as e:
                         failure_count += 1
                         if config.verbose:
-                            with output_lock:
                                 print(f"{Color.RED}\nError{Color.RESET} verifying file {file_path}: {e}")
                 else:
                     if config.verbose:
-                        with output_lock:
                             print(f"{Color.RED}\nError{Color.RESET}: File {file_path} does not exist.")
                     failure_count += 1
             except Exception as e:
                 failure_count += 1
                 if config.verbose:
-                    with output_lock:
                         print(f"{Color.RED}\nError{Color.RESET} processing file {file_path}: {e}")
         else:
             ignored_count += 1
             if config.verbose:
-                with output_lock:
                     print(f"{Color.YELLOW}\nIgnoring{Color.RESET} file {directory_or_file}")
     
     return success_count, failure_count, ignored_count
 
 
-async def process_mode(directory_or_file, config):
+def process_mode(directory_or_file, config):
     if config.mode in ["compress", "decompress"]:
-        return await convert_dvpl(directory_or_file, config)
+        return convert_dvpl(directory_or_file, config)
     elif config.mode == "verify":
-        return await verify_dvpl(directory_or_file, config)
+        return verify_dvpl(directory_or_file, config)
     elif config.mode == "help":
-        await print_help_message()
+        print_help_message()
         return 0, 0, 0
     else:
         raise ValueError("Incorrect mode selected. Use '--help' for information.")
 
 
-async def confirm_upgrade():
+def confirm_upgrade():
     while True:
         user_input = input("Are you sure you want to upgrade pydvpl? 'yes' (y) or 'no' (n): ").strip().lower()
         if user_input in ['yes', 'y']:
@@ -300,7 +287,7 @@ async def confirm_upgrade():
 
             
 
-async def parse_command_line_args():
+def parse_command_line_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--mode",
                         help="mode can be 'c' or 'compress' / 'd' or 'decompress' / 'v' or 'verify' / 'h' or 'help' (for an extended help guide).")
@@ -321,11 +308,11 @@ async def parse_command_line_args():
     args = parser.parse_args()
 
     if args.version:
-        await meta_info()
+        meta_info()
         sys.exit()
 
     if args.upgrade:
-        if await confirm_upgrade():
+        if confirm_upgrade():
             os.system('pip install pydvpl --upgrade')
         else:
             print("Upgrade cancelled.")
@@ -356,7 +343,7 @@ async def parse_command_line_args():
     return args
 
 
-async def print_help_message():
+def print_help_message():
     print('''$ pydvpl [--mode] [--keep-originals] [--path] [--verbose] [--ignore] [--threads]
 
     • flags can be one of the following:
@@ -418,7 +405,7 @@ async def print_help_message():
     ''')
 
 
-async def print_elapsed_time(elapsed_time):
+def print_elapsed_time(elapsed_time):
     if elapsed_time < 1:
         print(f"\n\nProcessing took {Color.GREEN}{int(elapsed_time * 1000)} ms{Color.RESET}\n")
     elif elapsed_time < 60:
@@ -429,23 +416,23 @@ async def print_elapsed_time(elapsed_time):
         print(f"\n\nProcessing took {Color.RED}{int(elapsed_time / 3600)} hour(s){Color.RESET}\n")
 
 
-async def cli():
+def cli():
     start_time = time.time()
-    config = await parse_command_line_args()
+    config = parse_command_line_args()
 
-    await brand_ascii()
+    brand_ascii()
 
     try:
         process_func_partial = partial(process_mode, config=config)
 
-        results = [await process_func_partial(config.path)]
+        results = [process_func_partial(config.path)]
 
         success_count = sum(result[0] for result in results)
         failure_count = sum(result[1] for result in results)
         ignored_count = sum(result[2] for result in results)
 
         if config.mode in ["compress", "decompress"]:
-            await print_elapsed_time(time.time() - start_time)
+            print_elapsed_time(time.time() - start_time)
             if config.mode == "compress":
                 print(f"{Color.BLUE}Compressesion Finished!{Color.RESET}\n")
             elif config.mode == "decompress":
@@ -456,7 +443,7 @@ async def cli():
             print(f"{'Failed:':<12} {Color.RED}{failure_count}{Color.RESET}")
             print(f"{'Ignored:':<12} {Color.YELLOW}{ignored_count}{Color.RESET}\n")
         elif config.mode == "verify":
-            await print_elapsed_time(time.time() - start_time)
+            print_elapsed_time(time.time() - start_time)
             print(f"{Color.BLUE}Verification Finished!{Color.RESET}\n")
             print(f"{Color.GREEN}{'-' * 10}{Color.RESET} {Color.GREEN}Summary{Color.RESET} {Color.GREEN}{'-' * 10}{Color.RESET}\n")
             print(f"{'Processed:':<12} {Color.BLUE}{success_count + failure_count + ignored_count}{Color.RESET}")
@@ -470,4 +457,4 @@ async def cli():
 
 
 if __name__ == "__main__":
-    asyncio.run(cli())
+    cli()
