@@ -75,10 +75,6 @@ Usage :
         $ pydvpl --mode verify -path /path/to/verify
 
         $ pydvpl --mode verify -path /path/to/verify/verify.yaml.dvpl
-        
-        $ pydvpl --mode decompress --path /path/to/decompress/compress.yaml.dvpl --threads 10
-
-        $ pydvpl --mode compress --path /path/to/decompress/compress.yaml --threads 10
 
         $ pydvpl --mode compress --path /path/to/decompress/compress.yaml --compression hc
         

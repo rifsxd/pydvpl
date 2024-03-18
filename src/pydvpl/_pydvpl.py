@@ -1,26 +1,23 @@
 import argparse
 import time
 import os
-import lz4.block
-import zlib
 import threading
 import sys
-import multiprocessing
+import asyncio
+import aiohttp
 from pathlib import Path
 from functools import partial
+from packaging import version
 
 PYDVPL_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(PYDVPL_DIR))
 
 from pydvpl.version import __version__, __description__, __title__, __repo__, __author__, __license__
-from pydvpl.dvpl import compress_dvpl, decompress_dvpl, read_dvpl_footer, DVPL_FOOTER_SIZE, DVPL_TYPE_NONE, DVPL_TYPE_LZ4
+from pydvpl.dvpl import compress_dvpl, decompress_dvpl
 from pydvpl.color import Color
 
-    
-import pkg_resources
-import requests
 
-def meta_info():
+async def meta_info():
     NAME = __title__
     VERSION = __version__
     DEV = __author__
@@ -38,13 +35,15 @@ def meta_info():
         idx += 1
         if idx == 20:  # Number of animation iterations
             break
-        time.sleep(0.05)  # Adjust sleep time for faster animation
+        await asyncio.sleep(0.05)  # Adjust sleep time for faster animation
 
     try:
-        response = requests.get(f"https://pypi.org/pypi/{NAME}/json", timeout=3)  # Set timeout for request
-        response.raise_for_status()  # Raise exception for non-200 status codes
-        latest_version = response.json()["info"]["version"]
-    except requests.exceptions.RequestException as e:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://pypi.org/pypi/{NAME}/json", timeout=3) as response:
+                response.raise_for_status()  # Raise exception for non-200 status codes
+                data = await response.json()
+                latest_version = data["info"]["version"]
+    except aiohttp.ClientError as e:
         print("\nError occurred while checking for updates:", e)
         return
     except Exception as e:
@@ -52,14 +51,13 @@ def meta_info():
         return
 
     if latest_version:
-        installed_version = pkg_resources.parse_version(VERSION)
-        latest_pypi_version = pkg_resources.parse_version(latest_version)
+        installed_version = version.parse(VERSION)
+        latest_pypi_version = version.parse(latest_version)
 
         if latest_pypi_version > installed_version:
             print(f"\n\n{Color.BLUE}• Version:{Color.RESET} {VERSION} (New version {latest_version} is available. Run `pydvpl --upgrade` to install latest version)")
         elif installed_version > latest_pypi_version:
             print(f"\n\n{Color.BLUE}• Version:{Color.RESET} {VERSION} (Whoa are you from the future? Cuz you have a newer version {VERSION} than available on PyPI {latest_version})")
-
         else:
             print(f"\n\n{Color.BLUE}• Version:{Color.RESET} {VERSION} (You have the latest version.)")
     else:
@@ -72,7 +70,8 @@ def meta_info():
     print(f"{Color.BLUE}• Info:{Color.RESET} {INFO}\n")
 
 
-def brand_ascii():
+async def brand_ascii():
+    print(f'{Color.BLUE}')
     print('                                                  ')
     print('██████╗ ██╗   ██╗██████╗ ██╗   ██╗██████╗ ██╗     ')
     print('██╔══██╗╚██╗ ██╔╝██╔══██╗██║   ██║██╔══██╗██║     ')
@@ -83,15 +82,15 @@ def brand_ascii():
     print('                                                  ')
     print(f'{__description__}')
     print('                                                  ')
-
+    print(f'{Color.RESET}')
 
 output_lock = threading.Lock()
 
-def print_remaining_time(processed_files, total_files, start_time):
+async def print_remaining_time(processed_files, total_files, start_time):
     elapsed_time = time.time() - start_time
-    if processed_files.value > 0:
-        avg_processing_time_per_file = elapsed_time / processed_files.value
-        remaining_files = total_files - processed_files.value
+    if processed_files > 0:
+        avg_processing_time_per_file = elapsed_time / processed_files
+        remaining_files = total_files - processed_files
         remaining_time = remaining_files * avg_processing_time_per_file
         if remaining_time < 1:
             print(f" | Remaining time: {Color.GREEN}{int(remaining_time * 1000)} ms{Color.RESET}", end='')
@@ -103,9 +102,9 @@ def print_remaining_time(processed_files, total_files, start_time):
             print(f" | Remaining time: {Color.RED}{int(remaining_time / 3600)} hour(s){Color.RESET}", end='')
 
 
-def print_progress_bar_with_time(processed_files, total_files, start_time):
+async def print_progress_bar_with_time(processed_files, total_files, start_time):
     with output_lock:
-        progress = min(processed_files.value / total_files, 1.0)  # Ensure progress doesn't exceed 100%
+        progress = min(processed_files / total_files, 1.0)  # Ensure progress doesn't exceed 100%
         bar_length = 50
         filled_length = int(bar_length * progress)
         gap_length = 1  # Adjust gap length as needed
@@ -119,10 +118,10 @@ def print_progress_bar_with_time(processed_files, total_files, start_time):
         percentage = progress * 100
         sys.stdout.write('\rProcessing: [{:<50}] {:.2f}%'.format(bar, percentage))
         sys.stdout.flush()
-        print_remaining_time(processed_files, total_files, start_time)
+        await print_remaining_time(processed_files, total_files, start_time)
 
 
-def count_total_files(directory):
+async def count_total_files(directory):
     total_files = 0
     for path in Path(directory).rglob('*'):
         if path.is_file():
@@ -130,11 +129,12 @@ def count_total_files(directory):
     return total_files
 
 
-def convert_dvpl(directory_or_file, config, total_files=None, processed_files=None, start_time=None):
+
+async def convert_dvpl(directory_or_file, config, total_files=None, processed_files=None, start_time=None):
     if total_files is None:
-        total_files = count_total_files(directory_or_file)
+        total_files = await count_total_files(directory_or_file)
     if processed_files is None:
-        processed_files = multiprocessing.Value('i', 0)
+        processed_files = 0
     if start_time is None:
         start_time = time.time()
 
@@ -148,13 +148,12 @@ def convert_dvpl(directory_or_file, config, total_files=None, processed_files=No
     if Path(directory_or_file).is_dir():
         for file_path in Path(directory_or_file).rglob('*'):
             if file_path.is_file():
-                succ, fail, ignored = convert_dvpl(str(file_path), config, total_files, processed_files, start_time)  # Convert WindowsPath to string
+                succ, fail, ignored = await convert_dvpl(str(file_path), config, total_files, processed_files, start_time)  # Convert WindowsPath to string
                 success_count += succ
                 failure_count += fail
                 ignored_count += ignored
-                with processed_files.get_lock():
-                    processed_files.value += 1
-                print_progress_bar_with_time(processed_files, total_files, start_time)
+                processed_files += 1
+                await print_progress_bar_with_time(processed_files, total_files, start_time)
     else:
         is_decompression = config.mode == "decompress" and str(directory_or_file).endswith(".dvpl")  # Convert WindowsPath to string
         is_compression = config.mode == "compress" and not str(directory_or_file).endswith(".dvpl")  # Convert WindowsPath to string
@@ -172,14 +171,14 @@ def convert_dvpl(directory_or_file, config, total_files=None, processed_files=No
 
                     if is_compression:
                         if config.compression == "fast":
-                            processed_block = compress_dvpl(file_data, "fast")
+                            processed_block = await compress_dvpl(file_data, "fast")
                         elif config.compression == "hc":
-                            processed_block = compress_dvpl(file_data, "hc")
+                            processed_block = await compress_dvpl(file_data, "hc")
                         else:
-                            processed_block = compress_dvpl(file_data)
+                            processed_block = await compress_dvpl(file_data)
                         new_name = file_path + ".dvpl"
                     else:
-                        processed_block = decompress_dvpl(file_data)
+                        processed_block = await decompress_dvpl(file_data)
                         new_name = os.path.splitext(file_path)[0]
 
                     with open(new_name, "wb") as f:
@@ -210,11 +209,11 @@ def convert_dvpl(directory_or_file, config, total_files=None, processed_files=No
 
     return success_count, failure_count, ignored_count
 
-def verify_dvpl(directory_or_file, config, total_files=None, processed_files=None, start_time=None):
+async def verify_dvpl(directory_or_file, config, total_files=None, processed_files=None, start_time=None):
     if total_files is None:
-        total_files = count_total_files(directory_or_file)
+        total_files = await count_total_files(directory_or_file)
     if processed_files is None:
-        processed_files = multiprocessing.Value('i', 0)
+        processed_files = 0
     if start_time is None:
         start_time = time.time()
 
@@ -228,13 +227,12 @@ def verify_dvpl(directory_or_file, config, total_files=None, processed_files=Non
     if Path(directory_or_file).is_dir():
         for file_path in Path(directory_or_file).rglob('*'):
             if file_path.is_file():
-                succ, fail, ignored = verify_dvpl(str(file_path), config, total_files, processed_files, start_time)  # Convert WindowsPath to string
+                succ, fail, ignored = await verify_dvpl(str(file_path), config, total_files, processed_files, start_time)  # Convert WindowsPath to string
                 success_count += succ
                 failure_count += fail
                 ignored_count += ignored
-                with processed_files.get_lock():
-                    processed_files.value += 1
-                print_progress_bar_with_time(processed_files, total_files, start_time)
+                processed_files += 1
+                await print_progress_bar_with_time(processed_files, total_files, start_time)
     else:
         is_dvpl_file = str(directory_or_file).endswith(".dvpl")  # Convert WindowsPath to string
         ignore_extensions = config.ignore.split(",") if config.ignore else []
@@ -277,19 +275,19 @@ def verify_dvpl(directory_or_file, config, total_files=None, processed_files=Non
     return success_count, failure_count, ignored_count
 
 
-def process_mode(directory_or_file, config):
+async def process_mode(directory_or_file, config):
     if config.mode in ["compress", "decompress"]:
-        return convert_dvpl(directory_or_file, config)
+        return await convert_dvpl(directory_or_file, config)
     elif config.mode == "verify":
-        return verify_dvpl(directory_or_file, config)
+        return await verify_dvpl(directory_or_file, config)
     elif config.mode == "help":
-        print_help_message()
+        await print_help_message()
         return 0, 0, 0
     else:
         raise ValueError("Incorrect mode selected. Use '--help' for information.")
 
 
-def confirm_upgrade():
+async def confirm_upgrade():
     while True:
         user_input = input("Are you sure you want to upgrade pydvpl? 'yes' (y) or 'no' (n): ").strip().lower()
         if user_input in ['yes', 'y']:
@@ -302,7 +300,7 @@ def confirm_upgrade():
 
             
 
-def parse_command_line_args():
+async def parse_command_line_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--mode",
                         help="mode can be 'c' or 'compress' / 'd' or 'decompress' / 'v' or 'verify' / 'h' or 'help' (for an extended help guide).")
@@ -313,8 +311,6 @@ def parse_command_line_args():
     parser.add_argument("-p", "--path", help="directory/files path to process. Default is the current directory.")
     parser.add_argument("-i", "--ignore", default="",
                         help="Comma-separated list of file extensions to ignore during compression.")
-    parser.add_argument("-t", "--threads", type=int, default=1,
-                        help="Number of threads to use for processing. Default is 1.")
     parser.add_argument("-c", "--compression", choices=['default', 'fast', 'hc'],
                         help="Select compression level: 'default' for default compression, 'fast' for fast compression, 'hc' for high compression. Only available for 'compress' mode.")
     parser.add_argument("--version", action="store_true",
@@ -325,11 +321,11 @@ def parse_command_line_args():
     args = parser.parse_args()
 
     if args.version:
-        meta_info()
+        await meta_info()
         sys.exit()
 
     if args.upgrade:
-        if confirm_upgrade():
+        if await confirm_upgrade():
             os.system('pip install pydvpl --upgrade')
         else:
             print("Upgrade cancelled.")
@@ -360,7 +356,7 @@ def parse_command_line_args():
     return args
 
 
-def print_help_message():
+async def print_help_message():
     print('''$ pydvpl [--mode] [--keep-originals] [--path] [--verbose] [--ignore] [--threads]
 
     • flags can be one of the following:
@@ -370,7 +366,6 @@ def print_help_message():
         -p, --path: specifies the directory/files path to process. Default is the current directory.
         -i, --ignore: specifies comma-separated (file extensions/file names/matching extentions or file names) to ignore during compression.
         -v, --verbose: shows verbose information for all processed files.
-        -t, --threads: specifies the number of threads to use for processing. Default is 1.
         --version: check version info/update and meta info.
         --upgrade: update to the latest version.
 
@@ -417,66 +412,62 @@ def print_help_message():
 
         $ pydvpl --mode verify -path /path/to/verify/verify.yaml.dvpl
         
-        $ pydvpl --mode decompress --path /path/to/decompress/compress.yaml.dvpl --threads 10
-
-        $ pydvpl --mode compress --path /path/to/decompress/compress.yaml --threads 10
-        
         $ pydvpl --mode compress --path /path/to/decompress/compress.yaml --compression hc
         
         $ pydvpl --mode compress --path /path/to/decompress/ --compression fast
     ''')
 
 
-def print_elapsed_time(elapsed_time):
+async def print_elapsed_time(elapsed_time):
     if elapsed_time < 1:
-        print(f"\nProcessing took {Color.GREEN}{int(elapsed_time * 1000)} ms{Color.RESET}\n")
+        print(f"\n\nProcessing took {Color.GREEN}{int(elapsed_time * 1000)} ms{Color.RESET}\n")
     elif elapsed_time < 60:
-        print(f"\nProcessing took {Color.YELLOW}{int(elapsed_time)} s{Color.RESET}\n")
+        print(f"\n\nProcessing took {Color.YELLOW}{int(elapsed_time)} s{Color.RESET}\n")
     elif elapsed_time < 3600:
-        print(f"\nProcessing took {Color.ORANGE}{int(elapsed_time / 60)} min(s){Color.RESET}\n")
+        print(f"\n\nProcessing took {Color.ORANGE}{int(elapsed_time / 60)} min(s){Color.RESET}\n")
     else:
-        print(f"\nProcessing took {Color.RED}{int(elapsed_time / 3600)} hour(s){Color.RESET}\n")
+        print(f"\n\nProcessing took {Color.RED}{int(elapsed_time / 3600)} hour(s){Color.RESET}\n")
 
 
-def cli():
+async def cli():
     start_time = time.time()
-    config = parse_command_line_args()
+    config = await parse_command_line_args()
 
-    if config.version:
-        meta_info()
-        return
-    
-    brand_ascii()
-
-    if config.threads <= 0:
-        print(f"\n{Color.YELLOW}No threads specified.{Color.RESET} No processing will be done.\n")
-        return
+    await brand_ascii()
 
     try:
         process_func_partial = partial(process_mode, config=config)
 
-        if config.threads > 1:
-            with multiprocessing.Pool(config.threads) as pool:
-                results = pool.map(process_func_partial, [config.path])
-        else:
-            results = [process_func_partial(config.path)]
+        results = [await process_func_partial(config.path)]
 
         success_count = sum(result[0] for result in results)
         failure_count = sum(result[1] for result in results)
         ignored_count = sum(result[2] for result in results)
 
         if config.mode in ["compress", "decompress"]:
-            print(
-                f"\n\n{Color.GREEN}{config.mode.upper()} FINISHED{Color.RESET}. Successful conversions: {Color.GREEN}{success_count}{Color.RESET}, Failed conversions: {Color.RED}{failure_count}{Color.RESET}, Ignored files: {Color.YELLOW}{ignored_count}{Color.RESET}")
+            await print_elapsed_time(time.time() - start_time)
+            if config.mode == "compress":
+                print(f"{Color.BLUE}Compressesion Finished!{Color.RESET}\n")
+            elif config.mode == "decompress":
+                print(f"{Color.BLUE}Decompression Finished!{Color.RESET}\n")
+            print(f"{Color.GREEN}{'-' * 10}{Color.RESET} {Color.GREEN}Summary{Color.RESET} {Color.GREEN}{'-' * 10}{Color.RESET}\n")
+            print(f"{'Processed:':<12} {Color.BLUE}{success_count + failure_count + ignored_count}{Color.RESET}")
+            print(f"{'Succeeded:':<12} {Color.GREEN}{success_count}{Color.RESET}")
+            print(f"{'Failed:':<12} {Color.RED}{failure_count}{Color.RESET}")
+            print(f"{'Ignored:':<12} {Color.YELLOW}{ignored_count}{Color.RESET}\n")
         elif config.mode == "verify":
-            print(
-                f"\n\n{Color.GREEN}{config.mode.upper()} FINISHED{Color.RESET}. Successful verifications: {Color.GREEN}{success_count}{Color.RESET}, Failed verifications: {Color.RED}{failure_count}{Color.RESET}, Ignored files: {Color.YELLOW}{ignored_count}{Color.RESET}")
-    except Exception as e:
-        print(f"\n\n{Color.RED}{config.mode.upper()} FAILED{Color.RESET}: {e}\n")
+            await print_elapsed_time(time.time() - start_time)
+            print(f"{Color.BLUE}Verification Finished!{Color.RESET}\n")
+            print(f"{Color.GREEN}{'-' * 10}{Color.RESET} {Color.GREEN}Summary{Color.RESET} {Color.GREEN}{'-' * 10}{Color.RESET}\n")
+            print(f"{'Processed:':<12} {Color.BLUE}{success_count + failure_count + ignored_count}{Color.RESET}")
+            print(f"{'Succeeded:':<12} {Color.GREEN}{success_count}{Color.RESET}")
+            print(f"{'Failed:':<12} {Color.RED}{failure_count}{Color.RESET}")
+            print(f"{'Ignored:':<12} {Color.YELLOW}{ignored_count}{Color.RESET}\n")
 
-    elapsed_time = time.time() - start_time
-    print_elapsed_time(elapsed_time)
+    except Exception as e:
+        print(f"{Color.RED}\nError: {e}{Color.RESET}\n")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    cli()
+    asyncio.run(cli())
