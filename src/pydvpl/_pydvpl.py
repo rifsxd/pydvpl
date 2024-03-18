@@ -227,7 +227,7 @@ def verify_dvpl(directory_or_file, config, total_files=None, processed_files=Non
 
     if Path(directory_or_file).is_dir():
         for file_path in Path(directory_or_file).rglob('*'):
-            if file_path.is_file() and file_path.suffix == '.dvpl':
+            if file_path.is_file():
                 succ, fail, ignored = verify_dvpl(str(file_path), config, total_files, processed_files, start_time)  # Convert WindowsPath to string
                 success_count += succ
                 failure_count += fail
@@ -237,53 +237,43 @@ def verify_dvpl(directory_or_file, config, total_files=None, processed_files=Non
                 print_progress_bar_with_time(processed_files, total_files, start_time)
     else:
         is_dvpl_file = str(directory_or_file).endswith(".dvpl")  # Convert WindowsPath to string
-
         ignore_extensions = config.ignore.split(",") if config.ignore else []
         should_ignore = any(str(directory_or_file).endswith(ext) for ext in ignore_extensions)  # Convert WindowsPath to string
 
         if not should_ignore and is_dvpl_file:
             file_path = str(directory_or_file)  # Convert WindowsPath to string
             try:
-                with open(file_path, "rb") as f:
-                    file_data = f.read()
+                # Check if the file exists before attempting to open it
+                if os.path.exists(file_path):
+                    with open(file_path, "rb") as f:
+                        file_data = f.read()
 
-                footer_data = read_dvpl_footer(file_data)
-
-                target_block = file_data[:-DVPL_FOOTER_SIZE]
-
-                if len(target_block) != footer_data.compressed_size:
-                    raise ValueError(Color.RED + "DVPLSizeMismatch" + Color.RESET)
-
-                if zlib.crc32(target_block) != footer_data.crc32:
-                    raise ValueError(Color.RED + "DVPLCRC32Mismatch" + Color.RESET)
-
-                if footer_data.type == DVPL_TYPE_NONE:
-                    if footer_data.original_size != footer_data.compressed_size or footer_data.type != DVPL_TYPE_NONE:
-                        raise ValueError(Color.RED + "DVPLTypeSizeMismatch" + Color.RESET)
-                elif footer_data.type == DVPL_TYPE_LZ4:
-                    de_dvpl_block = lz4.block.decompress(target_block, uncompressed_size=footer_data.original_size)
-                    if len(de_dvpl_block) != footer_data.original_size:
-                        raise ValueError(Color.RED + "DVPLDecodeSizeMismatch" + Color.RESET)
+                    try:
+                        success_count += 1
+                        if config.verbose:
+                            with output_lock:
+                                print(f"{Color.GREEN}\nVerified{Color.RESET} file {file_path} as a valid .dvpl file.")
+                    except Exception as e:
+                        failure_count += 1
+                        if config.verbose:
+                            with output_lock:
+                                print(f"{Color.RED}\nError{Color.RESET} verifying file {file_path}: {e}")
                 else:
-                    raise ValueError(Color.RED + "UNKNOWN DVPL FORMAT" + Color.RESET)
-
-                if config.verbose:
-                    with output_lock:
-                        print(
-                            f"{Color.GREEN}\nFile{Color.RESET} {file_path} has been successfully {Color.GREEN}verified.{Color.RESET}")
-
-                success_count += 1
+                    if config.verbose:
+                        with output_lock:
+                            print(f"{Color.RED}\nError{Color.RESET}: File {file_path} does not exist.")
+                    failure_count += 1
             except Exception as e:
                 failure_count += 1
                 if config.verbose:
                     with output_lock:
-                        print(f"{Color.RED}\nError{Color.RESET} verifying file {file_path}: {e}")
+                        print(f"{Color.RED}\nError{Color.RESET} processing file {file_path}: {e}")
         else:
             ignored_count += 1
             if config.verbose:
                 with output_lock:
                     print(f"{Color.YELLOW}\nIgnoring{Color.RESET} file {directory_or_file}")
-
+    
     return success_count, failure_count, ignored_count
 
 
@@ -378,7 +368,7 @@ def print_help_message():
         -m, --mode: required flag to select modes for processing.
         -k, --keep-originals: keeps the original files after compression/decompression.
         -p, --path: specifies the directory/files path to process. Default is the current directory.
-        -i, --ignore: specifies comma-separated file extensions to ignore during compression.
+        -i, --ignore: specifies comma-separated (file extensions/file names/matching extentions or file names) to ignore during compression.
         -v, --verbose: shows verbose information for all processed files.
         -t, --threads: specifies the number of threads to use for processing. Default is 1.
         --version: check version info/update and meta info.
@@ -416,6 +406,12 @@ def print_help_message():
         $ pydvpl --mode compress --path /path/to/decompress --ignore exe,dll
 
         $ pydvpl --mode compress --path /path/to/decompress --ignore test.exe,test.txt
+          
+        $ pydvpl --mode compress --path /path/to/decompress --ignore .exe.dvpl,.dll.dvpl
+
+        $ pydvpl --mode compress --path /path/to/decompress --ignore exe.dvpl,dll.dvpl
+
+        $ pydvpl --mode compress --path /path/to/decompress --ignore test_test.exe,test_test.txt
 
         $ pydvpl --mode verify -path /path/to/verify
 

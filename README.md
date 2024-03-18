@@ -65,6 +65,12 @@ Usage :
         $ pydvpl --mode compress --path /path/to/decompress --ignore exe,dll
 
         $ pydvpl --mode compress --path /path/to/decompress --ignore test.exe,test.txt
+          
+        $ pydvpl --mode compress --path /path/to/decompress --ignore .exe.dvpl,.dll.dvpl
+
+        $ pydvpl --mode compress --path /path/to/decompress --ignore exe.dvpl,dll.dvpl
+
+        $ pydvpl --mode compress --path /path/to/decompress --ignore test_test.exe,test_test.txt
 
         $ pydvpl --mode verify -path /path/to/verify
 
