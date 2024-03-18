@@ -1,6 +1,6 @@
 __title__ = "PyDVPL"
-__description__ = "A CLI Tool Coded In Python3 To Convert WoTB ( Dava ) SmartDLC DVPL File Based On LZ4 Compression."
-__version__ = "0.8.0"
+__description__ = "A CLI Tool Coded In Python3 To Convert WoTB ( Dava ) SmartDLC DVPL Files Based On LZ4 Compression."
+__version__ = "0.9.0"
 __author__ = "RifsxD"
 __repo__ = "https://github.com/rifsxd/pydvpl"
 __license__ = "MIT"

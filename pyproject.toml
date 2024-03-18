@@ -2,7 +2,7 @@
 name = "pydvpl"
 description = "A CLI Tool Coded In Python3 To Convert WoTB ( Dava ) SmartDLC DVPL File Based On LZ4 High Compression."
 readme = "README.md"
-version = "0.8.0"
+version = "0.9.0"
 authors = [{ name = "RifsxD", email = "support@rxd-mods.xyz" }]
 license = { text = "MIT License" }
 requires-python = ">=3.10"
@@ -14,6 +14,8 @@ classifiers = [
 ]
 dependencies = [
 	"lz4>=4.3.3",
+	"setuptools>=69.2.0",
+	"requests>=2.31.0"
 ]
 
 [project.scripts]

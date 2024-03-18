@@ -6,7 +6,6 @@ import zlib
 import threading
 import sys
 import multiprocessing
-import queue
 from pathlib import Path
 from functools import partial
 
@@ -88,8 +87,20 @@ def brand_ascii():
 
 output_lock = threading.Lock()
 
-# Define a thread-safe queue to store processed files
-processed_queue = queue.Queue()
+def print_remaining_time(processed_files, total_files, start_time):
+    elapsed_time = time.time() - start_time
+    if processed_files.value > 0:
+        avg_processing_time_per_file = elapsed_time / processed_files.value
+        remaining_files = total_files - processed_files.value
+        remaining_time = remaining_files * avg_processing_time_per_file
+        if remaining_time < 1:
+            print(f" | Remaining time: {Color.GREEN}{int(remaining_time * 1000)} ms{Color.RESET}", end='')
+        elif remaining_time < 60:
+            print(f" | Remaining time: {Color.YELLOW}{int(remaining_time)} s{Color.RESET}", end='')
+        elif remaining_time < 3600:
+            print(f" | Remaining time: {Color.ORANGE}{int(remaining_time / 60)} min(s){Color.RESET}\r", end='')
+        else:
+            print(f" | Remaining time: {Color.RED}{int(remaining_time / 3600)} hour(s){Color.RESET}", end='')
 
 
 def print_progress_bar_with_time(processed_files, total_files, start_time):
@@ -97,26 +108,18 @@ def print_progress_bar_with_time(processed_files, total_files, start_time):
         progress = min(processed_files.value / total_files, 1.0)  # Ensure progress doesn't exceed 100%
         bar_length = 50
         filled_length = int(bar_length * progress)
-        bar = '=' * filled_length + '-' * (bar_length - filled_length)
+        gap_length = 1  # Adjust gap length as needed
+        if filled_length < bar_length:  # If progress is less than 100%
+            gap_bar = f'{Color.GREY} {Color.RESET}' * gap_length
+        else:
+            gap_bar = ''
+        filled_bar = f'{Color.GREEN}━{Color.RESET}' * filled_length
+        unfilled_bar = f'{Color.GREY}━{Color.RESET}' * (bar_length - filled_length - gap_length)
+        bar = filled_bar + gap_bar + unfilled_bar
         percentage = progress * 100
         sys.stdout.write('\rProcessing: [{:<50}] {:.2f}%'.format(bar, percentage))
         sys.stdout.flush()
-
-        # Calculate remaining time
-        if progress > 0:
-            elapsed_time = time.time() - start_time
-            remaining_files = total_files - processed_files.value
-            if processed_files.value > 0:
-                avg_time_per_file = elapsed_time / processed_files.value
-                remaining_time = remaining_files * avg_time_per_file
-                if remaining_time < 60:
-                    remaining_time_str = f"{int(remaining_time)} s"
-                elif remaining_time < 3600:
-                    remaining_time_str = f"{int(remaining_time / 60)} min"
-                else:
-                    remaining_time_str = f"{int(remaining_time / 3600)} h"
-                sys.stdout.write(f' | Remaining time: {remaining_time_str}')
-                sys.stdout.flush()
+        print_remaining_time(processed_files, total_files, start_time)
 
 
 def count_total_files(directory):
@@ -298,14 +301,14 @@ def process_mode(directory_or_file, config):
 
 def confirm_upgrade():
     while True:
-        user_input = input("Are you sure you want to upgrade pydvpl? (y, yes / n, no): ").strip().lower()
+        user_input = input("Are you sure you want to upgrade pydvpl? 'yes' (y) or 'no' (n): ").strip().lower()
         if user_input in ['yes', 'y']:
             return True
         elif user_input in ['no', 'n']:
             return False
         else:
             print("Invalid input. Please enter 'yes' (y) or 'no' (n).")
-            sys.exit(1)  # Exit the script if invalid input is provided
+            sys.exit(1)
 
             
 
@@ -433,8 +436,10 @@ def print_elapsed_time(elapsed_time):
         print(f"\nProcessing took {Color.GREEN}{int(elapsed_time * 1000)} ms{Color.RESET}\n")
     elif elapsed_time < 60:
         print(f"\nProcessing took {Color.YELLOW}{int(elapsed_time)} s{Color.RESET}\n")
+    elif elapsed_time < 3600:
+        print(f"\nProcessing took {Color.ORANGE}{int(elapsed_time / 60)} min(s){Color.RESET}\n")
     else:
-        print(f"\nProcessing took {Color.RED}{int(elapsed_time / 60)} min{Color.RESET}\n")
+        print(f"\nProcessing took {Color.RED}{int(elapsed_time / 3600)} hour(s){Color.RESET}\n")
 
 
 def cli():

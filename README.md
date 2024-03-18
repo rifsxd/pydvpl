@@ -1,5 +1,5 @@
 # PyDVPL Cli Converter
-- A Cli Tool Coded In Python3 To Convert WoTB ( Dava ) SmartDLC DVPL File Based On LZ4 Compression.
+- A Cli Tool Coded In Python3 To Convert WoTB ( Dava ) SmartDLC DVPL Files Based On LZ4 Compression.
 
 Package & Module Structure :
 
