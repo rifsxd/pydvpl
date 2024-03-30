@@ -5,5 +5,6 @@ from ._dvpl import (
     decompress_dvpl,
     DVPL_FOOTER_SIZE,
     DVPL_TYPE_NONE,
-    DVPL_TYPE_LZ4
+    DVPL_TYPE_LZ4,
+    __LZ4_VERSION__
 )

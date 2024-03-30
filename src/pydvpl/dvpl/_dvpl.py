@@ -1,6 +1,10 @@
 import lz4.block
 import zlib
 from ..color import Color
+from lz4 import __version__
+
+
+__LZ4_VERSION__ = __version__
 
 
 DVPL_FOOTER_SIZE = 20

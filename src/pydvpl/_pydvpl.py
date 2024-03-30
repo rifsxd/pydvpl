@@ -11,13 +11,14 @@ PYDVPL_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(PYDVPL_DIR))
 
 from pydvpl.version import __version__, __description__, __title__, __repo__, __author__, __license__
-from pydvpl.dvpl import compress_dvpl, decompress_dvpl
+from pydvpl.dvpl import compress_dvpl, decompress_dvpl, __LZ4_VERSION__
 from pydvpl.color import Color
 
 
 def meta_info():
     NAME = __title__
     VERSION = __version__
+    LZ4_VERSION = __LZ4_VERSION__
     DEV = __author__
     REPO = __repo__
     INFO = __description__
@@ -60,11 +61,13 @@ def meta_info():
     else:
         print(f"\n\n{Color.BLUE}• Version:{Color.RESET} {VERSION} (Failed to retrieve latest version from PyPI)")
 
+    print(f"{Color.BLUE}  ╰─> LZ4:{Color.RESET} {LZ4_VERSION}")
+    print()
     print(f"{Color.BLUE}• Name:{Color.RESET} {NAME}")
-    print(f"{Color.BLUE}• Dev:{Color.RESET} {DEV}")
-    print(f"{Color.BLUE}• Repo:{Color.RESET} {REPO}")
-    print(f"{Color.BLUE}• LICENSE:{Color.RESET} {LICENSE}")
-    print(f"{Color.BLUE}• Info:{Color.RESET} {INFO}\n")
+    print(f"{Color.BLUE}  ╰─> Dev:{Color.RESET} {DEV}")
+    print(f"{Color.BLUE}      ╰─> LICENSE:{Color.RESET} {LICENSE}")
+    print(f"{Color.BLUE}          ╰─> Repo:{Color.RESET} {REPO}")
+    print(f"{Color.BLUE}              ╰─> Info:{Color.RESET} {INFO}\n")
 
 
 def brand_ascii():
